@@ -14,6 +14,8 @@ Detailed guides and tutorials covering various aspects of the cluster build and 
 
 - [How to Set Up a Hugo Blog on Cloudflare Pages](docs/How%20to%20Set%20Up%20a%20Hugo%20Blog%20on%20Cloudflare%20Pages.md) - Complete guide for setting up a technical blog to document your homelab journey
 
+- [Phase 1 Guides](docs/picluster-phase1) - Quick Start Guide, Implementation Plan, Storage Strategy, NFS Provisioner Testing
+
 ### Configuration Files ([configs/](configs/))
 
 Ready-to-use configuration files for various services and components:
