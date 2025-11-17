@@ -353,6 +353,19 @@ kubectl get svc -n traefik traefik
 # Note the EXTERNAL-IP (should be in 10.0.0.30-50 range)
 ```
 
+### Step 11b: Install cert-manager (SSL)
+**Duration:** 20 minutes
+
+```bash
+kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.13.0/cert-manager.yaml
+
+# Wait for pods
+kubectl wait --namespace cert-manager \
+  --for=condition=ready pod \
+  --selector=app.kubernetes.io/instance=cert-manager \
+  --timeout=90s
+```
+
 ### Step 12: Install NFS Storage Provisioner
 
 ```bash

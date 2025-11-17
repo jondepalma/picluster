@@ -4,8 +4,9 @@ This guide covers how to test your NFS storage provisioner, monitor PVC status, 
 
 ## Prerequisites
 
-- NFS server configured and accessible (e.g., 10.0.0.3)
-- NFS subdir external provisioner installed via Helm
+- NFS server configured and accessible (QNAP NAS at 10.0.0.3)
+- **NFSv4.1** enabled and verified working
+- NFS subdir external provisioner installed via Helm with NFSv4.1 support
 - StorageClasses created with correct provisioner name
 
 ## Quick Status Check
@@ -21,6 +22,48 @@ kubectl get pods -n kube-system | grep nfs
 
 # View all PVCs across all namespaces
 kubectl get pvc -A
+```
+
+## Verify NFSv4.1 Configuration
+
+### Check NFS Version in Use
+
+```bash
+# View active NFS mounts on worker nodes
+# First, find which node the provisioner is running on
+kubectl get pod -n kube-system -l app=nfs-subdir-external-provisioner -o wide
+
+# SSH to that node and check the mount
+ssh pi@<node-ip> 'mount | grep nfs'
+```
+
+**Expected output should include:**
+```
+10.0.0.3:/kubernetes-pv on /var/lib/kubelet/pods/.../volumes/kubernetes.io~nfs/... type nfs4 (rw,noatime,vers=4.1,...)
+```
+
+Look for `vers=4.1` to confirm NFSv4.1 is being used.
+
+### Test NFSv4.1 Connection Manually
+
+```bash
+# On pi-control or any worker node
+sudo mkdir -p /mnt/test-nfs4
+
+# Try mounting with NFSv4.1
+sudo mount -t nfs -o nfsvers=4.1 10.0.0.3:/kubernetes-pv /mnt/test-nfs4
+
+# Check if mounted
+mount | grep test-nfs4
+
+# Test write
+sudo touch /mnt/test-nfs4/test-file.txt
+echo "NFSv4.1 test" | sudo tee /mnt/test-nfs4/test-file.txt
+
+# Clean up
+sudo rm /mnt/test-nfs4/test-file.txt
+sudo umount /mnt/test-nfs4
+sudo rmdir /mnt/test-nfs4
 ```
 
 ## Testing NFS Storage
@@ -110,10 +153,15 @@ kubectl logs test-nfs-pod
 
 ```bash
 # SSH to your NFS server and check the files
-ssh pi@10.0.0.3 'ls -lR /mnt/data-ssd/k8s-nfs/'
+ssh pi@10.0.0.3 'ls -lR /share/CACHEDEV5_DATA/kubernetes-pv/'
 
 # You should see a directory for your PVC with the test.txt file
+
+# Check NFS exports configuration (verify NFSv4 is enabled)
+ssh pi@10.0.0.3 'cat /etc/exports | grep kubernetes-pv'
 ```
+
+**Note:** Your QNAP NAS exports both NFSv3 and NFSv4 paths. The cluster is configured to use NFSv4.1 for better performance.
 
 ### Step 7: Cleanup Test Resources
 
@@ -267,38 +315,45 @@ EOF
 
 #### B. NFS Server Not Accessible
 
-**Test NFS connectivity from a pod:**
+**Test NFSv4.1 connectivity from a pod:**
 ```bash
 kubectl run -it --rm debug --image=alpine --restart=Never -- sh
 
 # Inside the pod:
 apk add nfs-utils
 showmount -e 10.0.0.3
-mount -t nfs 10.0.0.3:/mnt/data-ssd/k8s-nfs /mnt
+mount -t nfs -o nfsvers=4.1 10.0.0.3:/kubernetes-pv /mnt
 ls /mnt
 exit
 ```
 
-**Check NFS server firewall:**
+**Check NFS server firewall (NFSv4.1 uses only port 2049):**
 ```bash
-# On NFS server
+# Test connectivity to NFS port
+nc -zv 10.0.0.3 2049
+
+# On NFS server (if firewall is enabled)
 sudo ufw status
 sudo ufw allow from 10.0.0.0/24 to any port nfs
 ```
 
 #### C. Provisioner Not Installed
 
-**Install NFS provisioner:**
+**Install NFS provisioner with NFSv4.1 support:**
 ```bash
 helm repo add nfs-subdir-external-provisioner https://kubernetes-sigs.github.io/nfs-subdir-external-provisioner/
 helm repo update
 
 helm install nfs-provisioner nfs-subdir-external-provisioner/nfs-subdir-external-provisioner \
   --set nfs.server=10.0.0.3 \
-  --set nfs.path=/mnt/data-ssd/k8s-nfs \
+  --set nfs.path=/kubernetes-pv \
   --set storageClass.create=false \
+  --set storageClass.provisionerName=cluster.local/nfs-provisioner-nfs-subdir-external-provisioner \
+  --set nfs.mountOptions="{nfsvers=4.1,hard,noatime}" \
   --namespace kube-system
 ```
+
+**Note:** For NFSv4, use the path `/kubernetes-pv` (relative to NFSv4 root), not the full path.
 
 ### Issue 2: Pod Can't Mount PVC
 
@@ -399,14 +454,15 @@ mount.nfs: access denied by server
 
 **Solutions:**
 
-1. Check NFS export permissions:
+1. Check NFS export permissions on QNAP:
 ```bash
 ssh pi@10.0.0.3 'cat /etc/exports'
 ```
 
-Should include something like:
+For NFSv4, you should see exports like:
 ```
-/mnt/data-ssd/k8s-nfs 10.0.0.0/24(rw,sync,no_subtree_check,no_root_squash)
+"/share/CACHEDEV5_DATA/kubernetes-pv" 10.0.0.0/24(sec=sys,rw,sync,wdelay,insecure,no_subtree_check,no_root_squash,fsid=...)
+"/share/NFSv=4/kubernetes-pv" 10.0.0.0/24(sec=sys,rw,sync,wdelay,insecure,nohide,no_subtree_check,no_root_squash,fsid=...)
 ```
 
 2. Update exports if needed:
@@ -416,7 +472,7 @@ ssh pi@10.0.0.3 'sudo exportfs -ra'
 
 3. Verify permissions on NFS directory:
 ```bash
-ssh pi@10.0.0.3 'ls -ld /mnt/data-ssd/k8s-nfs'
+ssh pi@10.0.0.3 'ls -ld /share/CACHEDEV5_DATA/kubernetes-pv'
 ```
 
 Should be readable/writable by appropriate users.
@@ -426,14 +482,17 @@ Should be readable/writable by appropriate users.
 Use this checklist to verify your NFS setup is working correctly:
 
 - [ ] NFS provisioner pod is running in kube-system namespace
+- [ ] **NFSv4.1** is enabled and working on QNAP NAS
 - [ ] StorageClass provisioner name matches what's in provisioner logs
+- [ ] StorageClass includes correct mount options (nfsvers=4.1, hard, noatime)
 - [ ] Test PVC transitions from Pending to Bound status
 - [ ] Test pod can mount the PVC successfully
 - [ ] Pod can write to the NFS volume
-- [ ] Files appear on the NFS server
+- [ ] Files appear on the NFS server at `/share/CACHEDEV5_DATA/kubernetes-pv/`
+- [ ] Worker nodes show `vers=4.1` in mount output
 - [ ] PVC and pod can be deleted cleanly
-- [ ] NFS server exports are configured correctly
-- [ ] Network connectivity between nodes and NFS server works
+- [ ] NFS server exports are configured correctly for NFSv4
+- [ ] Network connectivity to port 2049 works between nodes and NFS server
 
 ## Useful Monitoring Commands
 
@@ -482,19 +541,27 @@ kubectl get clusterrolebinding | grep nfs
 # SSH to a worker node
 ssh pi@<worker-ip>
 
-# Test NFS mount manually
-sudo mkdir -p /mnt/test-nfs
-sudo mount -t nfs 10.0.0.3:/mnt/data-ssd/k8s-nfs /mnt/test-nfs
+# Test NFSv4.1 mount manually
+sudo mkdir -p /mnt/test-nfs4
+sudo mount -t nfs -o nfsvers=4.1 10.0.0.3:/kubernetes-pv /mnt/test-nfs4
 
-# Check if mounted
+# Check if mounted (should show vers=4.1)
+mount | grep test-nfs4
+
+# Verify mount details
 df -h | grep nfs
 
 # Test write
-sudo touch /mnt/test-nfs/test-file.txt
+sudo touch /mnt/test-nfs4/test-file.txt
+echo "NFSv4.1 test" | sudo tee /mnt/test-nfs4/test-file.txt
 
-# Unmount
-sudo umount /mnt/test-nfs
+# Clean up
+sudo rm /mnt/test-nfs4/test-file.txt
+sudo umount /mnt/test-nfs4
+sudo rmdir /mnt/test-nfs4
 ```
+
+**Note:** For NFSv4, the path is `/kubernetes-pv` (relative to NFSv4 root), not the full `/share/CACHEDEV5_DATA/kubernetes-pv` path.
 
 ### Check Network Connectivity
 
@@ -502,12 +569,14 @@ sudo umount /mnt/test-nfs
 # From any cluster node, test NFS server connectivity
 ping -c 3 10.0.0.3
 
-# Check if NFS ports are accessible
+# Check if NFS port 2049 is accessible (NFSv4.1 uses only this port)
 nc -zv 10.0.0.3 2049
 
-# Check what exports are available
+# Check what NFS exports are available
 showmount -e 10.0.0.3
 ```
+
+**Note:** NFSv4.1 simplifies firewall configuration by using only port 2049, unlike NFSv3 which requires multiple ports.
 
 ## Best Practices
 
@@ -541,8 +610,15 @@ showmount -e 10.0.0.3
    ```
 
 7. **Regular backups**
-   - NFS data is on the NFS server
-   - Implement regular backup strategy for `/mnt/data-ssd/k8s-nfs`
+   - NFS data is on the QNAP NAS
+   - Implement regular backup strategy for `/share/CACHEDEV5_DATA/kubernetes-pv`
+   - Consider using QNAP's built-in snapshot features
+
+8. **NFSv4.1 advantages in this cluster**
+   - Better performance with parallel I/O operations
+   - Single port (2049) simplifies firewall rules
+   - Built-in file locking (no separate lockd daemon needed)
+   - Improved security options available
 
 ## Quick Reference: Common Scenarios
 
@@ -606,7 +682,11 @@ kubectl get storageclass
 
 ## Notes
 
-- The examples in this guide use `10.0.0.3` as the NFS server IP - adjust for your setup
+- This cluster uses **NFSv4.1** on a QNAP NAS (10.0.0.3) - verified and tested
+- For NFSv4, paths are relative to the NFSv4 root (use `/kubernetes-pv` not `/share/CACHEDEV5_DATA/kubernetes-pv`)
+- NFSv4.1 mount options in use: `nfsvers=4.1,hard,noatime`
+- The QNAP NAS exports both NFSv3 and NFSv4 paths - this cluster uses NFSv4
 - Default namespace is used in examples - add `-n <namespace>` for other namespaces
 - Always verify PVC is bound before deploying applications that depend on it
 - Keep provisioner logs available for at least 24 hours for troubleshooting
+- NFSv4.1 uses only port 2049, making firewall configuration simpler than NFSv3

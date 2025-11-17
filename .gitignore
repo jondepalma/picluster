@@ -1,0 +1,110 @@
+# Operating System Files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+Desktop.ini
+
+# Editor and IDE Files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.project
+.settings/
+*.sublime-project
+*.sublime-workspace
+
+# Temporary Files
+*.tmp
+*.temp
+*.log
+*.bak
+*.cache
+
+# Kubernetes Secrets and Sensitive Data
+*secret*.yaml
+*secret*.yml
+secrets/
+*.key
+*.pem
+*.crt
+*.p12
+*.pfx
+kubeconfig
+kubeconfig.*
+.kube/
+
+# Environment Files
+.env
+.env.local
+.env.*.local
+*.env
+
+# SSH Keys
+id_rsa
+id_rsa.pub
+*.ppk
+
+# Backup Files
+*.backup
+backup/
+backups/
+
+# Local Configuration Overrides
+local/
+*.local
+
+# Docker
+.dockerignore
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+ENV/
+
+# Node.js (if used for any tooling)
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Terraform (if used for infrastructure)
+*.tfstate
+*.tfstate.*
+.terraform/
+.terraform.lock.hcl
+
+# Ansible (if used for configuration management)
+*.retry
+vault-password.txt
+
+# Personal Notes and Drafts
+NOTES.md
+TODO.md
+draft/
+drafts/
+
+# Build Outputs
+dist/
+build/
+*.out
+
+# MacOS
+.AppleDouble
+.LSOverride
+
+# Windows
+$RECYCLE_BIN/
+
+# AI Chat Logs (your ai-chats directory might contain sensitive info)
+ai-chats/
