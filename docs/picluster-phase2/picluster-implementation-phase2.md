@@ -263,6 +263,6 @@ echo "Connection: postgresql://postgres:$POSTGRES_PASSWORD@postgresql-dev.dev.sv
 
 ### Gitea Deployment
 
-Reference the complete [Gitea Deployment Guide](docs\picluster-phase2\gitea-deployment-complete-guide.md)
+Reference the complete [Gitea Deployment Guide](gitea-deployment-complete-guide.md)
 
 ---
