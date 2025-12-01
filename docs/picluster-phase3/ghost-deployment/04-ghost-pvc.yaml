@@ -1,0 +1,19 @@
+---
+# Ghost Content Storage
+# Stores themes, images, uploaded files, and other Ghost content
+
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: ghost-content
+  namespace: ghost
+  labels:
+    app: ghost
+    component: storage
+spec:
+  accessModes:
+  - ReadWriteOnce
+  storageClassName: nfs-client
+  resources:
+    requests:
+      storage: 10Gi

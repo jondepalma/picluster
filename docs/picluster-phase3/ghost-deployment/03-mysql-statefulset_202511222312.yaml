@@ -1,0 +1,162 @@
+---
+# MySQL Database for Ghost Blog
+# Deployed in the 'prod' namespace for separation of concerns
+# This can be shared with other applications if needed
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: mysql-ghost
+  namespace: prod
+  labels:
+    app: mysql
+    component: database
+    for: ghost-blog
+spec:
+  selector:
+    app: mysql-ghost
+  ports:
+  - name: mysql
+    port: 3306
+    targetPort: 3306
+  clusterIP: None  # Headless service for StatefulSet
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: mysql-ghost
+  namespace: prod
+  labels:
+    app: mysql-ghost
+    component: database
+spec:
+  serviceName: mysql-ghost
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mysql-ghost
+  template:
+    metadata:
+      labels:
+        app: mysql-ghost
+        component: database
+    spec:
+      containers:
+      - name: mysql
+        image: mysql:8.0
+        ports:
+        - name: mysql
+          containerPort: 3306
+        env:
+        # Root password for administrative tasks
+        - name: MYSQL_ROOT_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: mysql-ghost
+              key: root-password
+        # Ghost database and user
+        - name: MYSQL_DATABASE
+          value: ghost
+        - name: MYSQL_USER
+          value: ghost
+        - name: MYSQL_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: mysql-ghost
+              key: password
+        # Performance tuning for Pi cluster
+        - name: MYSQL_INNODB_BUFFER_POOL_SIZE
+          value: "256M"
+        - name: MYSQL_MAX_CONNECTIONS
+          value: "50"
+        volumeMounts:
+        - name: data
+          mountPath: /var/lib/mysql
+        - name: config
+          mountPath: /etc/mysql/conf.d
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "200m"
+          limits:
+            memory: "1Gi"
+            cpu: "500m"
+        livenessProbe:
+          exec:
+            command:
+            - mysqladmin
+            - ping
+            - -h
+            - localhost
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+        readinessProbe:
+          exec:
+            command:
+            - mysqladmin
+            - ping
+            - -h
+            - localhost
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          timeoutSeconds: 1
+      volumes:
+      - name: config
+        configMap:
+          name: mysql-ghost-config
+  volumeClaimTemplates:
+  - metadata:
+      name: data
+      labels:
+        app: mysql-ghost
+    spec:
+      accessModes:
+      - ReadWriteOnce
+      storageClassName: nfs-db
+      resources:
+        requests:
+          storage: 20Gi
+---
+# MySQL Configuration for optimized performance on Pi
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mysql-ghost-config
+  namespace: prod
+  labels:
+    app: mysql-ghost
+    component: database
+data:
+  custom.cnf: |
+    [mysqld]
+    # Character set configuration
+    character-set-server = utf8mb4
+    collation-server = utf8mb4_unicode_ci
+    
+    # Performance tuning for Raspberry Pi
+    max_connections = 50
+    innodb_buffer_pool_size = 256M
+    innodb_log_file_size = 64M
+    innodb_flush_method = O_DIRECT
+    innodb_flush_log_at_trx_commit = 2
+    
+    # Query cache (disabled in MySQL 8.0, but keeping for reference)
+    # query_cache_size = 0
+    # query_cache_type = 0
+    
+    # Reduce disk I/O
+    innodb_flush_neighbors = 0
+    
+    # Connection handling
+    max_allowed_packet = 256M
+    wait_timeout = 300
+    interactive_timeout = 300
+    
+    # Binary logging (optional, disable if not needed)
+    skip-log-bin
+    
+    # Slow query log (useful for debugging)
+    slow_query_log = 1
+    slow_query_log_file = /var/lib/mysql/slow-query.log
+    long_query_time = 2
