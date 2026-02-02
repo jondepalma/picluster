@@ -1,0 +1,25 @@
+---
+# Ghost Service
+# Provides internal cluster access to Ghost application
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: ghost
+  namespace: ghost
+  labels:
+    app: ghost
+    component: application
+spec:
+  type: ClusterIP
+  selector:
+    app: ghost
+  ports:
+  - name: http
+    port: 2368
+    targetPort: 2368
+    protocol: TCP
+  sessionAffinity: ClientIP
+  sessionAffinityConfig:
+    clientIP:
+      timeoutSeconds: 3600

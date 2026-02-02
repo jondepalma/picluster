@@ -1,0 +1,10 @@
+---
+# Ghost Blog Namespace
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ghost
+  labels:
+    name: ghost
+    environment: production
+    app-type: blog

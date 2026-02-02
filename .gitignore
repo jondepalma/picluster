@@ -108,3 +108,6 @@ $RECYCLE_BIN/
 
 # AI Chat Logs (your ai-chats directory might contain sensitive info)
 ai-chats/
+
+#Claude
+CLAUDE_CONTEXT.md

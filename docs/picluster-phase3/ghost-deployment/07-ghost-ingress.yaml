@@ -1,0 +1,67 @@
+---
+# Ghost Ingress with TLS
+#
+# IMPORTANT: Update the host field with your actual domain!
+#
+# This configuration assumes you're using Traefik ingress controller
+# with cert-manager for automatic TLS certificate generation.
+#
+# If using Cloudflare Tunnel instead, you may not need this Ingress.
+
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ghost
+  namespace: ghost
+  labels:
+    app: ghost
+    component: ingress
+  annotations:
+    # Traefik annotations
+    traefik.ingress.kubernetes.io/router.entrypoints: web,websecure
+    traefik.ingress.kubernetes.io/router.middlewares: ghost-headers@kubernetescrd
+    
+    # Cert-manager annotation (if using cert-manager)
+    # cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    
+    # Cloudflare annotations (if using Cloudflare)
+    # external-dns.alpha.kubernetes.io/cloudflare-proxied: "true"
+    
+    # Security headers
+    # traefik.ingress.kubernetes.io/router.tls: "true"
+spec:
+  # TLS configuration
+  tls:
+  - hosts:
+    - blog.jondepalma.net  # CHANGE THIS!
+    secretName: ghost-tls
+  
+  rules:
+  - host: blog.jondepalma.net  # CHANGE THIS!
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: ghost
+            port:
+              number: 2368
+---
+# Security headers middleware for Ghost
+apiVersion: traefik.containo.us/v1alpha1
+kind: Middleware
+metadata:
+  name: ghost-headers
+  namespace: ghost
+spec:
+  headers:
+    customResponseHeaders:
+      X-Robots-Tag: "none,noarchive,nosnippet,notranslate,noimageindex"
+    frameDeny: false
+    contentTypeNosniff: true
+    browserXssFilter: true
+    customFrameOptionsValue: "SAMEORIGIN"
+    sslRedirect: true
+    sslProxyHeaders:
+      X-Forwarded-Proto: https

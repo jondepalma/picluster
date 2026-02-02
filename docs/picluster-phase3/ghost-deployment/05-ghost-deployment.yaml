@@ -1,0 +1,175 @@
+---
+# Ghost Blog Application Deployment
+# 
+# Prerequisites:
+# 1. MySQL must be running in 'prod' namespace
+# 2. Secrets must be created (mysql-ghost and ghost-secrets)
+# 3. Update the 'url' value below with your actual domain
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ghost
+  namespace: ghost
+  labels:
+    app: ghost
+    component: application
+    version: "5.130.5"
+spec:
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: ghost
+  template:
+    metadata:
+      labels:
+        app: ghost
+        component: application
+    spec:
+      # Initialize database on first run
+      initContainers:
+      - name: wait-for-mysql
+        image: busybox:1.36
+        command:
+        - sh
+        - -c
+        - |
+          echo "Waiting for MySQL to be ready..."
+          until nc -z mysql-ghost.prod.svc.cluster.local 3306; do
+            echo "MySQL not ready yet, waiting..."
+            sleep 5
+          done
+          echo "MySQL is ready!"
+      containers:
+      - name: ghost
+        image: ghost:5.130.5
+        ports:
+        - name: http
+          containerPort: 2368
+          protocol: TCP
+        env:
+        # ======================
+        # REQUIRED: Update this URL with your actual domain!
+        # ======================
+        - name: url
+          value: "https://blog.jondepalma.net"
+        
+        # Node environment
+        - name: NODE_ENV
+          value: "production"
+        
+        # Database configuration - MySQL in prod namespace
+        - name: database__client
+          value: "mysql"
+        - name: database__connection__host
+          value: "mysql-ghost.prod.svc.cluster.local"
+        - name: database__connection__port
+          value: "3306"
+        - name: database__connection__user
+          value: "ghost"
+        - name: database__connection__password
+          valueFrom:
+            secretKeyRef:
+              name: ghost-secrets
+              key: db-password
+        - name: database__connection__database
+          value: "ghost"
+        
+        # Performance settings
+        - name: database__pool__min
+          value: "2"
+        - name: database__pool__max
+          value: "10"
+        
+        # Mail configuration (optional - uncomment when ready to use)
+        # Example: Gmail SMTP
+        # - name: mail__transport
+        #   value: "SMTP"
+        # - name: mail__options__service
+        #   value: "Gmail"
+        # - name: mail__options__host
+        #   value: "smtp.gmail.com"
+        # - name: mail__options__port
+        #   value: "465"
+        # - name: mail__options__secure
+        #   value: "true"
+        # - name: mail__options__auth__user
+        #   valueFrom:
+        #     secretKeyRef:
+        #       name: ghost-secrets
+        #       key: mail-user
+        # - name: mail__options__auth__pass
+        #   valueFrom:
+        #     secretKeyRef:
+        #       name: ghost-secrets
+        #       key: mail-password
+        # - name: mail__from
+        #   value: "noreply@yourdomain.com"
+        
+        # Logging
+        - name: logging__level
+          value: "info"
+        - name: logging__transports
+          value: '["stdout"]'
+        
+        volumeMounts:
+        - name: content
+          mountPath: /var/lib/ghost/content
+        
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "100m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+        
+        # Health checks
+        livenessProbe:
+          httpGet:
+            path: /ghost/api/v4/admin/site/
+            port: 2368
+            httpHeaders:
+            - name: X-Forwarded-Proto
+              value: https
+          initialDelaySeconds: 120
+          periodSeconds: 30
+          timeoutSeconds: 10
+          failureThreshold: 3
+        
+        readinessProbe:
+          httpGet:
+            path: /ghost/api/v4/admin/site/
+            port: 2368
+            httpHeaders:
+            - name: X-Forwarded-Proto
+              value: https
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        
+        # Graceful shutdown
+        lifecycle:
+          preStop:
+            exec:
+              command:
+              - sh
+              - -c
+              - sleep 10
+      
+      volumes:
+      - name: content
+        persistentVolumeClaim:
+          claimName: ghost-content
+      
+      # Security context
+      securityContext:
+        fsGroup: 1000
+        runAsUser: 1000
+        runAsNonRoot: true
